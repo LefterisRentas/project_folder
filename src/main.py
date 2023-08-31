@@ -5,37 +5,12 @@ import openpyxl
 import threading
 import subprocess
 import tkinter.ttk as ttk
-import time
+
 
 class EntryField(ttk.Entry):
     def __init__(self, master=None, **kwargs):
         super().__init__(master, **kwargs)
         self.config(font=("Helvetica", 12))
-
-
-class CustomListbox(ttk.Treeview):
-    def __init__(self, master=None, **kwargs):
-        ttk.Treeview.__init__(self, master, **kwargs)
-
-        # Store the items that have been inserted
-        self.inserted_items = []
-
-    def custom_insert(self, item):
-        iid = str(time.time()) + str(hash(item))
-        self.insert("", "end", iid=iid, text=item, values=(item,))
-        self.inserted_items.append((iid, item))  # Store the item along with its iid
-
-    def custom_remove(self, item):
-        print(f"Removing item: {item}")
-        items_to_remove = []
-
-        for iid, text in self.inserted_items:
-            if text == item:
-                items_to_remove.append((iid, text))
-
-        for iid, text in items_to_remove:
-            self.delete(iid)
-            self.inserted_items.remove((iid, text))
 
 
 class App:
@@ -86,6 +61,9 @@ class App:
         self.exclude_file_button = ttk.Button(root, text="Browse Exclude", command=self.browse_exclude)
         self.exclude_file_button.pack()
 
+        self.exclude_file_label = ttk.Label(root, text="Exclude text:")
+        self.exclude_file_label.pack()
+
         # Entry field for adding exclude strings
         self.exclude_entry = ttk.Entry(root)
         self.exclude_entry.pack()
@@ -98,7 +76,7 @@ class App:
         self.remove_exclude_button = ttk.Button(root, text="Remove Selected", command=self.remove_selected_exclude)
         self.remove_exclude_button.pack(pady=5)
 
-        self.exclude_listbox = CustomListbox(root)
+        self.exclude_listbox = tk.Listbox(root)
         self.exclude_listbox.pack(pady=10)
 
         self.save_changes_button = ttk.Button(root, text="Save Changes", command=self.save_changes)
@@ -127,12 +105,9 @@ class App:
             with open(exclude_file, "r", encoding="utf-8") as f:
                 self.exclude_strings = [line.strip() for line in f.readlines()]
 
-            # Clear the existing content in the listbox
-            self.exclude_listbox.delete(*self.exclude_listbox.get_children())
-
-            # Insert the updated exclude strings into the listbox
+            self.exclude_listbox.delete(0, tk.END)  # Clear the listbox
             for exclude_string in self.exclude_strings:
-                self.exclude_listbox.custom_insert(exclude_string)  # Use custom_insert method
+                self.exclude_listbox.insert(tk.END, exclude_string)
 
             self.exclude_file_entry.delete(0, tk.END)
             self.exclude_file_entry.insert(0, exclude_file)
@@ -142,19 +117,20 @@ class App:
         if exclude_string:
             if exclude_string not in self.exclude_strings:
                 self.exclude_strings.append(exclude_string)
-                self.exclude_listbox.custom_insert(exclude_string)  # Use custom_insert method
+                self.exclude_listbox.insert(tk.END, exclude_string)
                 self.exclude_entry.delete(0, tk.END)
             else:
                 messagebox.showinfo("Duplicate Entry", "The exclude string already exists.")
 
     def remove_selected_exclude(self):
-        selected_items = self.exclude_listbox.selection()
-        for selected_item in selected_items:
-            item_text = self.exclude_listbox.item(selected_item, "text")
-            print(f"Removing item: {item_text}")
-            self.exclude_listbox.custom_remove(item_text)
-            print(f"Removing from exclude_strings: {item_text}")
-            self.exclude_strings.remove(item_text)
+        selected_index = self.exclude_listbox.curselection()
+        if selected_index:
+            selected_index = selected_index[0]
+            selected_exclude = self.exclude_listbox.get(selected_index)
+            confirm = messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete '{selected_exclude}'?")
+            if confirm:
+                self.exclude_listbox.delete(selected_index)
+                self.exclude_strings.remove(selected_exclude)
 
     def generate_exclude_file(self):
         exclude_file_path = "exclude.txt"
@@ -169,26 +145,25 @@ class App:
 
         # Clear the exclude_strings list and the exclude_listbox
         self.exclude_strings.clear()  # Clear the list
-        self.exclude_listbox.custom_remove(tk.END)  # Clear the listbox
+        self.exclude_listbox.delete(0, tk.END)  # Clear the listbox
         return f.name
 
     def save_changes(self):
         # Update the displayed excluded strings in the listbox
-        self.exclude_listbox.delete(*self.exclude_listbox.get_children())  # Clear all items
+        self.exclude_listbox.delete(0, tk.END)
         for exclude_string in self.exclude_strings:
-            self.exclude_listbox.custom_insert(exclude_string)  # Use custom_insert method
-
-        # Save changes to file
-        file = self.generate_exclude_file()
+            self.exclude_listbox.insert(tk.END, exclude_string)
+        file = self.generate_exclude_file()  # Save changes to file
 
         # Update the listbox with the latest exclude strings
-        self.exclude_listbox.delete(*self.exclude_listbox.get_children())  # Clear all items
+        self.exclude_listbox.delete(0, tk.END)
         if file:
             with open(file, "r", encoding="utf-8") as f:
                 self.exclude_strings = [line.strip() for line in f.readlines()]
 
+            self.exclude_listbox.delete(0, tk.END)  # Clear the listbox
             for exclude_string in self.exclude_strings:
-                self.exclude_listbox.custom_insert(exclude_string)  # Use custom_insert method
+                self.exclude_listbox.insert(tk.END, exclude_string)
 
             self.exclude_file_entry.delete(0, tk.END)
             self.exclude_file_entry.insert(0, os.path.abspath(file))
@@ -204,7 +179,7 @@ class App:
         processing_thread.start()
 
     @staticmethod
-    def process_excel(excel_file, amount, exclude_strings):
+    def process_excel(excel_file, exclude_file, amount, exclude_strings):
         # Load the Excel workbook
         workbook = openpyxl.load_workbook(excel_file)
         sheet = workbook.active
